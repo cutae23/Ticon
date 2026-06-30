@@ -123,6 +123,7 @@ export default function GifPreviewer({
   // Live player states
   const [isPlaying, setIsPlaying] = useState(true);
   const [playerIndex, setPlayerIndex] = useState(0);
+  const [previewBg, setPreviewBg] = useState<"light" | "white" | "dark">("white");
 
   // GIF compile states
   const [isCompiling, setIsCompiling] = useState(false);
@@ -438,13 +439,60 @@ export default function GifPreviewer({
     <div className="space-y-6" id="gif-previewer-panel">
       {/* Real-time Web Player */}
       <div className="bg-[#141414] rounded-2xl border border-white/5 p-5 space-y-4 shadow-xl">
-        <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-          <Play className="w-4 h-4 text-indigo-400" />
-          실시간 애니메이션 미리보기
-        </h3>
+        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+          <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+            <Play className="w-4 h-4 text-indigo-400" />
+            실시간 애니메이션 미리보기
+          </h3>
+          <div className="flex items-center gap-1.5 bg-white/5 p-1 rounded-xl border border-white/10 text-[11px] self-start sm:self-auto">
+            <span className="text-[10px] text-gray-400 font-bold px-1.5 uppercase tracking-wider">배경색:</span>
+            <button
+              type="button"
+              onClick={() => setPreviewBg("white")}
+              className={`px-2.5 py-1 rounded-lg cursor-pointer font-bold transition-all ${
+                previewBg === "white"
+                  ? "bg-white text-gray-900 shadow-md shadow-white/5"
+                  : "text-gray-400 hover:text-white"
+              }`}
+              title="순수 흰색 배경 (기본)"
+            >
+              흰색
+            </button>
+            <button
+              type="button"
+              onClick={() => setPreviewBg("light")}
+              className={`px-2.5 py-1 rounded-lg cursor-pointer font-bold transition-all ${
+                previewBg === "light"
+                  ? "bg-white/15 text-white"
+                  : "text-gray-400 hover:text-white"
+              }`}
+              title="밝은 격자무늬 배경"
+            >
+              밝은 격자
+            </button>
+            <button
+              type="button"
+              onClick={() => setPreviewBg("dark")}
+              className={`px-2.5 py-1 rounded-lg cursor-pointer font-bold transition-all ${
+                previewBg === "dark"
+                  ? "bg-indigo-600 text-white"
+                  : "text-gray-400 hover:text-white"
+              }`}
+              title="어두운 격자무늬 배경"
+            >
+              어두운 격자
+            </button>
+          </div>
+        </div>
 
         {/* Player Screen */}
-        <div className="relative border border-white/10 rounded-xl bg-[#090909] aspect-square flex items-center justify-center p-6 checkerboard overflow-hidden">
+        <div className={`relative border border-white/10 rounded-xl aspect-square flex items-center justify-center p-6 overflow-hidden transition-all duration-300 ${
+          previewBg === "white" 
+            ? "bg-white" 
+            : previewBg === "light" 
+            ? "checkerboard-light" 
+            : "bg-[#090909] checkerboard"
+        }`}>
           {activeDisplayFrame ? (
             <div
               style={{
