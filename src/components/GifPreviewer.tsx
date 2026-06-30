@@ -25,7 +25,8 @@ function scaleImageWithSmoothing(
   captionStroke: boolean,
   captionFont: string,
   frameIndex: number,
-  totalFrames: number
+  totalFrames: number,
+  backgroundColor?: string
 ): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -47,6 +48,12 @@ function scaleImageWithSmoothing(
 
       if (imageSmoothing) {
         ctx.imageSmoothingQuality = "high";
+      }
+
+      // Fill canvas background if a color is provided to avoid default transparent-to-black compression artifacts in gifshot
+      if (backgroundColor) {
+        ctx.fillStyle = backgroundColor;
+        ctx.fillRect(0, 0, targetWidth, targetHeight);
       }
 
       ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
@@ -329,6 +336,8 @@ export default function GifPreviewer({
         const targetW = settings.gifWidth || 256;
         const targetH = settings.gifHeight || 256;
 
+        const compileBgColor = previewBg === "dark" ? "#090909" : "#ffffff";
+
         // Process frames synchronously or in parallel to guarantee custom smoothness/crispness and draw animated caption overlay
         const sharpFrames = await Promise.all(
           compileFrames.map((url, index) => 
@@ -346,7 +355,8 @@ export default function GifPreviewer({
               settings.captionStroke,
               settings.captionFont,
               index,
-              compileFrames.length
+              compileFrames.length,
+              compileBgColor
             )
           )
         );
