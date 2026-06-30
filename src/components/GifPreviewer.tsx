@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Play, Pause, Download, Settings, RefreshCw, Check, Sparkles, AlertCircle, Lock, Unlock, Type, Palette, MoveVertical, Sliders } from "lucide-react";
+import { Play, Pause, Download, Settings, RefreshCw, Check, Sparkles, AlertCircle, Lock, Unlock, Type, Palette, MoveVertical, MoveHorizontal, Sliders } from "lucide-react";
 import gifshot from "gifshot";
 import { FrameInfo, GifSettings } from "../types";
 
@@ -20,8 +20,10 @@ function scaleImageWithSmoothing(
   captionColor: string,
   captionSize: number,
   captionYPercent: number,
+  captionXPercent: number,
   captionEffect: "static" | "bounce" | "fade" | "pop",
   captionStroke: boolean,
+  captionFont: string,
   frameIndex: number,
   totalFrames: number
 ): Promise<string> {
@@ -77,11 +79,11 @@ function scaleImageWithSmoothing(
         const computedFontSize = Math.max(8, Math.round(captionSize * (targetHeight / 256)));
 
         // Setup text styling
-        ctx.font = `bold ${computedFontSize}px "Noto Sans KR", "Nanum Gothic", "Inter", sans-serif`;
+        ctx.font = `bold ${computedFontSize}px "${captionFont}", "Noto Sans KR", "Nanum Gothic", "Inter", sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
 
-        const x = targetWidth / 2;
+        const x = targetWidth * (captionXPercent / 100);
         const y = (targetHeight * (captionYPercent / 100)) + offsetY;
 
         ctx.fillStyle = captionColor;
@@ -338,8 +340,10 @@ export default function GifPreviewer({
               settings.captionColor,
               settings.captionSize,
               settings.captionYPercent,
+              settings.captionXPercent,
               settings.captionEffect,
               settings.captionStroke,
+              settings.captionFont,
               index,
               compileFrames.length
             )
@@ -419,7 +423,9 @@ export default function GifPreviewer({
     return {
       color: settings.captionColor,
       fontSize: `calc((${settings.captionSize} / 256) * 100cqh)`,
+      fontFamily: `"${settings.captionFont}", "Noto Sans KR", "Nanum Gothic", "Inter", sans-serif`,
       top: `${settings.captionYPercent}%`,
+      left: `${settings.captionXPercent}%`,
       transform: `translate(-50%, -50%) translate3d(0, ${offsetYStr}, 0) scale(${scale})`,
       opacity: opacity,
       textShadow: settings.captionStroke 
@@ -445,18 +451,40 @@ export default function GifPreviewer({
                 aspectRatio: `${settings.gifWidth} / ${settings.gifHeight}`,
                 containerType: "both"
               }}
-              className="relative max-h-full max-w-full w-full h-full flex items-center justify-center"
+              className="relative max-h-full max-w-full flex items-center justify-center cursor-crosshair select-none"
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const clickX = e.clientX - rect.left;
+                const clickY = e.clientY - rect.top;
+                const xPercent = Math.min(100, Math.max(0, Math.round((clickX / rect.width) * 100)));
+                const yPercent = Math.min(100, Math.max(0, Math.round((clickY / rect.height) * 100)));
+                updateSetting("captionXPercent", xPercent);
+                updateSetting("captionYPercent", yPercent);
+              }}
+              onTouchStart={(e) => {
+                if (e.touches.length > 0) {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const touch = e.touches[0];
+                  const clickX = touch.clientX - rect.left;
+                  const clickY = touch.clientY - rect.top;
+                  const xPercent = Math.min(100, Math.max(0, Math.round((clickX / rect.width) * 100)));
+                  const yPercent = Math.min(100, Math.max(0, Math.round((clickY / rect.height) * 100)));
+                  updateSetting("captionXPercent", xPercent);
+                  updateSetting("captionYPercent", yPercent);
+                }
+              }}
             >
               <img
                 src={activeDisplayFrame.dataUrl}
                 alt="Live frame animation preview"
-                className={`max-h-full max-w-full object-contain filter drop-shadow-lg ${!settings.imageSmoothing ? "pixelated" : ""}`}
+                className="max-h-full max-w-full object-contain filter drop-shadow-lg pointer-events-none"
+                style={{ imageRendering: !settings.imageSmoothing ? "pixelated" : "auto" }}
                 referrerPolicy="no-referrer"
               />
               {settings.captionText && (
                 <div
                   style={liveCaptionStyle}
-                  className="absolute left-1/2 select-none font-bold text-center pointer-events-none transition-all duration-75 whitespace-nowrap z-10 font-sans"
+                  className="absolute select-none font-bold text-center pointer-events-none transition-all duration-75 whitespace-nowrap z-10 font-sans"
                 >
                   {settings.captionText}
                 </div>
@@ -568,6 +596,13 @@ export default function GifPreviewer({
         </div>
 
         {settings.captionText && (
+          <div className="text-[11px] text-indigo-300 font-medium bg-indigo-500/10 border border-indigo-500/20 px-3.5 py-2.5 rounded-xl flex items-center gap-2 animate-fadeIn">
+            <Sparkles className="w-4 h-4 shrink-0 text-indigo-400" />
+            <span>💡 <strong>실시간 미리보기 화면을 클릭/터치</strong>하면 자막이 그 위치로 즉시 이동합니다!</span>
+          </div>
+        )}
+
+        {settings.captionText && (
           <div className="space-y-4 animate-fadeIn">
             {/* Color Selector */}
             <div className="space-y-1.5">
@@ -616,8 +651,43 @@ export default function GifPreviewer({
               </div>
             </div>
 
+            {/* Font Family Selector */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                <Type className="w-3.5 h-3.5 text-indigo-400" />
+                원하는 글씨체(폰트) 선택
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: "Noto Sans KR", name: "본고딕 (기본)" },
+                  { id: "Nanum Gothic", name: "나눔고딕 (강조)" },
+                  { id: "Nanum Myeongjo", name: "나눔명조 (세리프)" },
+                  { id: "Jua", name: "둥근 주아체 (귀여움)" },
+                  { id: "Black Han Sans", name: "검은고딕 (울트라볼드)" },
+                  { id: "Gamja Flower", name: "감자꽃체 (손글씨)" },
+                  { id: "Single Day", name: "싱글데이체 (손글씨)" },
+                  { id: "Diphylleia", name: "디필리아 (레트로)" },
+                ].map((font) => (
+                  <button
+                    key={font.id}
+                    type="button"
+                    onClick={() => updateSetting("captionFont", font.id)}
+                    style={{ fontFamily: font.id }}
+                    className={`px-3 py-2 rounded-xl text-left border text-xs transition-all cursor-pointer truncate ${
+                      settings.captionFont === font.id
+                        ? "bg-indigo-600/15 border-indigo-500/80 text-white shadow-md shadow-indigo-600/5 ring-1 ring-indigo-500/10"
+                        : "bg-white/5 border-white/5 text-gray-300 hover:bg-white/10 hover:border-white/10"
+                    }`}
+                  >
+                    <span className="block text-[11px] font-bold">{font.name}</span>
+                    <span className="block text-[10px] opacity-60 mt-0.5">가나다라마바사 abc</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Font size and Stroke toggle */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-3">
               {/* Font Size */}
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center">
@@ -634,6 +704,25 @@ export default function GifPreviewer({
                 />
               </div>
 
+              {/* Text Position X */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider block flex items-center gap-1">
+                    <MoveHorizontal className="w-3.5 h-3.5" />
+                    좌우 위치
+                  </label>
+                  <span className="text-[10px] text-indigo-400 font-bold font-mono bg-indigo-500/15 px-1.5 py-0.5 rounded">{settings.captionXPercent}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="5"
+                  max="95"
+                  value={settings.captionXPercent}
+                  onChange={(e) => updateSetting("captionXPercent", parseInt(e.target.value))}
+                  className="w-full accent-indigo-500 h-1 bg-gray-800 rounded-lg cursor-pointer"
+                />
+              </div>
+
               {/* Text Position Y */}
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center">
@@ -645,8 +734,8 @@ export default function GifPreviewer({
                 </div>
                 <input
                   type="range"
-                  min="10"
-                  max="90"
+                  min="5"
+                  max="95"
                   value={settings.captionYPercent}
                   onChange={(e) => updateSetting("captionYPercent", parseInt(e.target.value))}
                   className="w-full accent-indigo-500 h-1 bg-gray-800 rounded-lg cursor-pointer"

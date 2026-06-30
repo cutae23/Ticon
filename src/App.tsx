@@ -32,8 +32,10 @@ export default function App() {
     captionColor: "#ffffff",
     captionSize: 28,
     captionYPercent: 80,
+    captionXPercent: 50,
     captionEffect: "static",
     captionStroke: true,
+    captionFont: "Noto Sans KR",
   });
 
   // 2. Active Sprite Sheet Image (Default to rotating gold coin sample)
@@ -184,8 +186,10 @@ export default function App() {
       captionColor: "#ffffff",
       captionSize: 28,
       captionYPercent: 80,
+      captionXPercent: 50,
       captionEffect: "static",
       captionStroke: true,
+      captionFont: "Noto Sans KR",
     });
     setSliceError(null);
   };

@@ -38,6 +38,8 @@ export interface GifSettings {
   captionColor: string;
   captionSize: number;
   captionYPercent: number;
+  captionXPercent: number;
   captionEffect: "static" | "bounce" | "fade" | "pop";
   captionStroke: boolean;
+  captionFont: string;
 }
