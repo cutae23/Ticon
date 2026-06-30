@@ -141,12 +141,35 @@ export default function GifPreviewer({
   useEffect(() => {
     if (!currentSpriteSheet) return;
     const img = new Image();
+    img.crossOrigin = "anonymous";
     img.onload = () => {
       const croppedW = img.naturalWidth - settings.cropLeft - settings.cropRight;
       const croppedH = img.naturalHeight - settings.cropTop - settings.cropBottom;
       const singleW = Math.max(1, Math.floor(croppedW / settings.cols) - 2 * settings.frameShave);
       const singleH = Math.max(1, Math.floor(croppedH / settings.rows) - 2 * settings.frameShave);
-      setOriginalFrameSize({ w: singleW, h: singleH });
+      
+      setOriginalFrameSize((prev) => {
+        if (prev.w !== singleW || prev.h !== singleH) {
+          // Default to upscaling the sliced frame to a high-quality preset (e.g., 4x or 8x scale)
+          let scaleFactor = 4;
+          if (singleW * scaleFactor < 256) {
+            scaleFactor = 8; // Use 8x for tiny pixel art (e.g. 16px, 32px) to guarantee clear resolution
+          }
+          
+          setScalePreset(String(scaleFactor));
+          
+          setTimeout(() => {
+            onSettingsChange({
+              ...settings,
+              gifWidth: Math.round(singleW * scaleFactor),
+              gifHeight: Math.round(singleH * scaleFactor),
+            });
+          }, 0);
+          
+          return { w: singleW, h: singleH };
+        }
+        return prev;
+      });
     };
     img.src = currentSpriteSheet;
   }, [
@@ -383,7 +406,7 @@ export default function GifPreviewer({
     if (activeFrames.length > 1 && displayFrameIndex >= 0) {
       const ratio = displayFrameIndex / activeFrames.length;
       if (settings.captionEffect === "bounce") {
-        offsetY = Math.sin(ratio * Math.PI * 2) * 8; // bounce offset in px
+        offsetY = Math.sin(ratio * Math.PI * 2) * 4; // 4% of container height (4cqh)
       } else if (settings.captionEffect === "fade") {
         opacity = 0.4 + 0.6 * Math.sin(ratio * Math.PI);
       } else if (settings.captionEffect === "pop") {
@@ -391,14 +414,16 @@ export default function GifPreviewer({
       }
     }
     
+    const offsetYStr = settings.captionEffect === "bounce" ? `${offsetY}cqh` : "0px";
+    
     return {
       color: settings.captionColor,
-      fontSize: `${Math.max(10, settings.captionSize)}px`,
+      fontSize: `calc((${settings.captionSize} / 256) * 100cqh)`,
       top: `${settings.captionYPercent}%`,
-      transform: `translate(-50%, -50%) translate3d(0, ${offsetY}px, 0) scale(${scale})`,
+      transform: `translate(-50%, -50%) translate3d(0, ${offsetYStr}, 0) scale(${scale})`,
       opacity: opacity,
       textShadow: settings.captionStroke 
-        ? "2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 0px 2px 0 #000, 2px 0px 0 #000, 0px -2px 0 #000, -2px 0px 0 #000"
+        ? "0.08em 0.08em 0 #000, -0.08em -0.08em 0 #000, 0.08em -0.08em 0 #000, -0.08em 0.08em 0 #000, 0px 0.08em 0 #000, 0.08em 0px 0 #000, 0px -0.08em 0 #000, -0.08em 0px 0 #000"
         : "none",
     };
   })();
@@ -415,7 +440,13 @@ export default function GifPreviewer({
         {/* Player Screen */}
         <div className="relative border border-white/10 rounded-xl bg-[#090909] aspect-square flex items-center justify-center p-6 checkerboard overflow-hidden">
           {activeDisplayFrame ? (
-            <>
+            <div
+              style={{
+                aspectRatio: `${settings.gifWidth} / ${settings.gifHeight}`,
+                containerType: "both"
+              }}
+              className="relative max-h-full max-w-full w-full h-full flex items-center justify-center"
+            >
               <img
                 src={activeDisplayFrame.dataUrl}
                 alt="Live frame animation preview"
@@ -430,7 +461,7 @@ export default function GifPreviewer({
                   {settings.captionText}
                 </div>
               )}
-            </>
+            </div>
           ) : (
             <div className="text-center text-gray-500 space-y-2">
               <AlertCircle className="w-8 h-8 text-amber-500/80 mx-auto" />
