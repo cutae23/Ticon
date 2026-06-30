@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .checkerboard {
+    background-color: #0d0d0d;
+    background-image: 
+      linear-gradient(45deg, #161616 25%, transparent 25%), 
+      linear-gradient(-45deg, #161616 25%, transparent 25%), 
+      linear-gradient(45deg, transparent 75%, #161616 75%), 
+      linear-gradient(-45deg, transparent 75%, #161616 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+  }
+  
+  .pixelated {
+    image-rendering: -moz-crisp-edges;
+    image-rendering: -o-crisp-edges;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    -ms-interpolation-mode: nearest-neighbor;
+  }
+}
+

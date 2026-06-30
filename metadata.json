@@ -1,0 +1,6 @@
+{
+  "name": "Sprite Sheet to GIF Converter",
+  "description": "36장(또는 다양한 격자 규격)의 스프라이트 시트 이미지를 고속으로 분할하여 세련된 움직이는 GIF 애니메이션으로 변환해주는 도구입니다. 투명 크로마키 배경 제거와 미세 재생 조정 기능이 포함되어 있습니다.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
