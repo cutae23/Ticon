@@ -43,3 +43,4 @@ export interface GifSettings {
   captionStroke: boolean;
   captionFont: string;
 }
+

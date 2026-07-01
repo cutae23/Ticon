@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Play, Pause, Download, Settings, RefreshCw, Check, Sparkles, AlertCircle, Lock, Unlock, Type, Palette, MoveVertical, MoveHorizontal, Sliders } from "lucide-react";
-import gifshot from "gifshot";
+// @ts-ignore
+import { GIFEncoder, quantize, applyPalette } from "gifenc";
 import { FrameInfo, GifSettings } from "../types";
 
 interface GifPreviewerProps {
@@ -10,7 +11,7 @@ interface GifPreviewerProps {
   currentSpriteSheet: string | null;
 }
 
-// Custom scaling helper that respects the selected image smoothing setting and draws animated captions
+// Custom scaling helper that respects the selected image smoothing setting, draws animated captions, and outputs ImageData
 function scaleImageWithSmoothing(
   dataUrl: string,
   targetWidth: number,
@@ -25,9 +26,8 @@ function scaleImageWithSmoothing(
   captionStroke: boolean,
   captionFont: string,
   frameIndex: number,
-  totalFrames: number,
-  backgroundColor?: string
-): Promise<string> {
+  totalFrames: number
+): Promise<ImageData> {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
@@ -36,7 +36,11 @@ function scaleImageWithSmoothing(
       canvas.height = targetHeight;
       const ctx = canvas.getContext("2d");
       if (!ctx) {
-        resolve(dataUrl);
+        const dummyCanvas = document.createElement("canvas");
+        dummyCanvas.width = targetWidth;
+        dummyCanvas.height = targetHeight;
+        const dummyCtx = dummyCanvas.getContext("2d")!;
+        resolve(dummyCtx.getImageData(0, 0, targetWidth, targetHeight));
         return;
       }
 
@@ -50,11 +54,7 @@ function scaleImageWithSmoothing(
         ctx.imageSmoothingQuality = "high";
       }
 
-      // Fill canvas background if a color is provided to avoid default transparent-to-black compression artifacts in gifshot
-      if (backgroundColor) {
-        ctx.fillStyle = backgroundColor;
-        ctx.fillRect(0, 0, targetWidth, targetHeight);
-      }
+      // Do NOT fill background color to preserve transparency of character sprite
 
       ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
 
@@ -112,10 +112,14 @@ function scaleImageWithSmoothing(
         ctx.restore();
       }
 
-      resolve(canvas.toDataURL("image/png"));
+      resolve(ctx.getImageData(0, 0, targetWidth, targetHeight));
     };
     img.onerror = () => {
-      resolve(dataUrl);
+      const canvas = document.createElement("canvas");
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      const ctx = canvas.getContext("2d")!;
+      resolve(ctx.getImageData(0, 0, targetWidth, targetHeight));
     };
     img.src = dataUrl;
   });
@@ -308,7 +312,7 @@ export default function GifPreviewer({
     });
   };
 
-  // Generate animated GIF with high-quality scaling
+  // Generate animated GIF with high-quality scaling and transparency preservation using gifenc
   const handleCompileGif = () => {
     if (activeFrames.length === 0) return;
 
@@ -329,14 +333,10 @@ export default function GifPreviewer({
       compileFrames = [...compileFrames, ...reverseSequence];
     }
 
-    const intervalSeconds = 1 / settings.fps;
-
     setTimeout(async () => {
       try {
         const targetW = settings.gifWidth || 256;
         const targetH = settings.gifHeight || 256;
-
-        const compileBgColor = previewBg === "dark" ? "#090909" : "#ffffff";
 
         // Process frames synchronously or in parallel to guarantee custom smoothness/crispness and draw animated caption overlay
         const sharpFrames = await Promise.all(
@@ -355,40 +355,63 @@ export default function GifPreviewer({
               settings.captionStroke,
               settings.captionFont,
               index,
-              compileFrames.length,
-              compileBgColor
+              compileFrames.length
             )
           )
         );
 
-        setCompileProgress("GIF 파일 생성 및 최적화 중...");
+        setCompileProgress("투명 GIF 파일 생성 및 프레임 압축 중...");
 
-        gifshot.createGIF(
-          {
-            images: sharpFrames,
-            interval: intervalSeconds,
-            gifWidth: targetW,
-            gifHeight: targetH,
-            loopLimit: settings.loop ? 0 : 1, // 0 = infinite loop, 1 = play once
-            numWorkers: 2,
-            showProgressBar: false,
-          },
-          (result) => {
-            if (!result.error) {
-              setGeneratedGif(result.image);
-              setGifSizeKB(calculateBase64SizeKB(result.image));
-              setGifDimensions({ w: targetW, h: targetH });
-              setIsCompiling(false);
-            } else {
-              console.error("GIF generation error:", result);
-              alert("GIF 생성 도중 오류가 발생했습니다: " + result.errorMsg);
-              setIsCompiling(false);
-            }
+        const gifEncoder = GIFEncoder();
+
+        sharpFrames.forEach((imageData, frameIndex) => {
+          const data = imageData.data; // Uint8ClampedArray representing RGBA pixel data
+          
+          // Quantize the colors to a reduced palette with alpha support (rgba4444)
+          // and set oneBitAlpha to true so alpha values are either fully transparent or fully opaque
+          const palette = quantize(data, 256, { format: 'rgba4444', oneBitAlpha: true });
+          
+          // Obtain an indexed bitmap matching the quantized colors
+          const indexBitmap = applyPalette(data, palette, 'rgba4444');
+          
+          // Detect the first index with fully transparent alpha in our quantized palette
+          const transparentIndex = palette.findIndex((c) => c[3] === 0);
+          
+          const delayMs = Math.round(1000 / settings.fps);
+          const frameOpts: any = {
+            palette,
+            delay: delayMs,
+          };
+
+          if (transparentIndex !== -1) {
+            frameOpts.transparent = true;
+            frameOpts.transparentIndex = transparentIndex;
           }
-        );
+
+          if (frameIndex === 0) {
+            frameOpts.repeat = settings.loop ? 0 : -1;
+          }
+
+          gifEncoder.writeFrame(indexBitmap, targetW, targetH, frameOpts);
+        });
+
+        gifEncoder.finish();
+
+        const bytes = gifEncoder.bytes();
+        const blob = new Blob([bytes], { type: "image/gif" });
+        
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64data = reader.result as string;
+          setGeneratedGif(base64data);
+          setGifSizeKB(calculateBase64SizeKB(base64data));
+          setGifDimensions({ w: targetW, h: targetH });
+          setIsCompiling(false);
+        };
+        reader.readAsDataURL(blob);
       } catch (err: any) {
-        console.error("Sharp scale error:", err);
-        alert("이미지 보정 과정에서 문제가 생겼습니다: " + err.message);
+        console.error("Transparent GIF compilation error:", err);
+        alert("이미지 보정 및 GIF 생성 과정에서 문제가 생겼습니다: " + err.message);
         setIsCompiling(false);
       }
     }, 300);
