@@ -132,7 +132,8 @@ export function sliceSpriteSheet(
 export function applyTransparency(
   originalDataUrl: string,
   targetColorHex: string,
-  tolerance: number
+  tolerance: number,
+  floodFill: boolean = true
 ): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -150,6 +151,8 @@ export function applyTransparency(
         ctx.drawImage(img, 0, 0);
         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const data = imgData.data;
+        const w = canvas.width;
+        const h = canvas.height;
 
         // Clean target hex color format
         const cleanHex = targetColorHex.startsWith("#") ? targetColorHex.slice(1) : targetColorHex;
@@ -167,20 +170,115 @@ export function applyTransparency(
         // Max color distance = sqrt(255^2 + 255^2 + 255^2) ≈ 441.67
         const threshold = (tolerance / 100) * 442;
 
-        for (let i = 0; i < data.length; i += 4) {
-          const r = data[i];
-          const g = data[i + 1];
-          const b = data[i + 2];
+        const matchesTarget = (idx: number): boolean => {
+          const r = data[idx];
+          const g = data[idx + 1];
+          const b = data[idx + 2];
+          const a = data[idx + 3];
+          if (a === 0) return true; // Already transparent
 
-          // Compute Euclidean color distance
           const distance = Math.sqrt(
             (r - rTarget) ** 2 +
             (g - gTarget) ** 2 +
             (b - bTarget) ** 2
           );
+          return distance <= threshold;
+        };
 
-          if (distance <= threshold) {
-            data[i + 3] = 0; // Fully transparent alpha
+        if (!floodFill) {
+          // Global Chroma-key (replaces all matching pixels everywhere)
+          for (let i = 0; i < data.length; i += 4) {
+            if (matchesTarget(i)) {
+              data[i + 3] = 0; // Fully transparent alpha
+            }
+          }
+        } else {
+          // Connected Border Flood Fill: protect enclosed shapes like a white bunny inside outlines
+          const visited = new Uint8Array(w * h);
+          const queue = new Int32Array(w * h);
+          let head = 0;
+          let tail = 0;
+
+          // Seed coordinates from absolute edges (3 layers of edge pixels to guarantee capturing background even with borders)
+          const layers = [0, 1, 2];
+          for (const offset of layers) {
+            if (offset >= w || offset >= h) continue;
+
+            // Top and bottom edges
+            for (let x = offset; x < w - offset; x++) {
+              // Top rows
+              const idxTop = offset * w + x;
+              if (!visited[idxTop] && matchesTarget(idxTop * 4)) {
+                visited[idxTop] = 1;
+                queue[tail++] = idxTop;
+              }
+              // Bottom rows
+              const idxBottom = (h - 1 - offset) * w + x;
+              if (!visited[idxBottom] && matchesTarget(idxBottom * 4)) {
+                visited[idxBottom] = 1;
+                queue[tail++] = idxBottom;
+              }
+            }
+
+            // Left and right edges
+            for (let y = offset; y < h - offset; y++) {
+              // Left columns
+              const idxLeft = y * w + offset;
+              if (!visited[idxLeft] && matchesTarget(idxLeft * 4)) {
+                visited[idxLeft] = 1;
+                queue[tail++] = idxLeft;
+              }
+              // Right columns
+              const idxRight = y * w + (w - 1 - offset);
+              if (!visited[idxRight] && matchesTarget(idxRight * 4)) {
+                visited[idxRight] = 1;
+                queue[tail++] = idxRight;
+              }
+            }
+          }
+
+          // BFS traversal
+          while (head < tail) {
+            const currIdx = queue[head++];
+            const cx = currIdx % w;
+            const cy = Math.floor(currIdx / w);
+
+            // Make the current matched background pixel fully transparent
+            data[currIdx * 4 + 3] = 0;
+
+            // Check 4-way neighbors
+            // 1. Up
+            if (cy > 0) {
+              const nidx = currIdx - w;
+              if (!visited[nidx] && matchesTarget(nidx * 4)) {
+                visited[nidx] = 1;
+                queue[tail++] = nidx;
+              }
+            }
+            // 2. Down
+            if (cy < h - 1) {
+              const nidx = currIdx + w;
+              if (!visited[nidx] && matchesTarget(nidx * 4)) {
+                visited[nidx] = 1;
+                queue[tail++] = nidx;
+              }
+            }
+            // 3. Left
+            if (cx > 0) {
+              const nidx = currIdx - 1;
+              if (!visited[nidx] && matchesTarget(nidx * 4)) {
+                visited[nidx] = 1;
+                queue[tail++] = nidx;
+              }
+            }
+            // 4. Right
+            if (cx < w - 1) {
+              const nidx = currIdx + 1;
+              if (!visited[nidx] && matchesTarget(nidx * 4)) {
+                visited[nidx] = 1;
+                queue[tail++] = nidx;
+              }
+            }
           }
         }
 

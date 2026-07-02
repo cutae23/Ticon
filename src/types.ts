@@ -24,6 +24,7 @@ export interface GifSettings {
   gifHeight: number;
   loop: boolean;
   transparencyEnabled: boolean;
+  transparencyFloodFill: boolean; // Protect character interior white pixels by only removing connected background pixels
   transparentColor: string; // Hex color e.g., "#00ff00"
   transparencyTolerance: number; // 0 to 100
   cropLeft: number;

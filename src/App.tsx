@@ -18,6 +18,7 @@ export default function App() {
     gifHeight: 256,
     loop: true,
     transparencyEnabled: false,
+    transparencyFloodFill: true,
     transparentColor: "#000000",
     transparencyTolerance: 15,
     cropLeft: 0,
@@ -107,7 +108,8 @@ export default function App() {
             activeUrl = await applyTransparency(
               activeUrl,
               settings.transparentColor,
-              settings.transparencyTolerance
+              settings.transparencyTolerance,
+              settings.transparencyFloodFill
             );
           }
 
@@ -186,6 +188,7 @@ export default function App() {
     settings.cols,
     settings.rows,
     settings.transparencyEnabled,
+    settings.transparencyFloodFill,
     settings.transparentColor,
     settings.transparencyTolerance,
     settings.cropLeft,
@@ -226,6 +229,7 @@ export default function App() {
       gifHeight: 256,
       loop: true,
       transparencyEnabled: false,
+      transparencyFloodFill: true,
       transparentColor: "#000000",
       transparencyTolerance: 15,
       cropLeft: 0,

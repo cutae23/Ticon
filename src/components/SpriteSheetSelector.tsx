@@ -426,6 +426,24 @@ export default function SpriteSheetSelector({
               </div>
             </div>
 
+            <div className="flex items-center justify-between bg-white/5 p-2.5 rounded-xl border border-white/5">
+              <div className="space-y-0.5">
+                <span className="text-[10px] text-gray-300 font-bold block">외곽 배경만 제거 (인물 보호)</span>
+                <span className="text-[9px] text-gray-500 block leading-normal">
+                  외곽 테두리 영역만 투명화하여 캐릭터 내부의 흰색/동일 색상 영역이 투명해지는 것을 방지합니다.
+                </span>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={settings.transparencyFloodFill}
+                  onChange={(e) => updateSetting("transparencyFloodFill", e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-8 h-4.5 bg-gray-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-3.5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-gray-300 after:border-gray-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-indigo-600"></div>
+              </label>
+            </div>
+
             <div className="text-[10px] text-gray-400 bg-white/5 p-2.5 rounded-lg leading-relaxed border border-white/5">
               💡 투명 알파 채널이 없는 단색 배경(예: 흰색, 검은색, 녹색 등) 스프라이트 시트의 해당 배경 색상을 완벽하게 제거하여 정밀하게 애니메이션을 합성합니다.
             </div>
