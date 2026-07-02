@@ -3,6 +3,7 @@ import { Play, Pause, Download, Settings, RefreshCw, Check, Sparkles, AlertCircl
 // @ts-ignore
 import { GIFEncoder, quantize, applyPalette } from "gifenc";
 import { FrameInfo, GifSettings } from "../types";
+import JSZip from "jszip";
 
 interface GifPreviewerProps {
   frames: FrameInfo[];
@@ -143,6 +144,11 @@ export default function GifPreviewer({
   const [gifSizeKB, setGifSizeKB] = useState<number | null>(null);
   const [gifDimensions, setGifDimensions] = useState({ w: 0, h: 0 });
 
+  // PNG ZIP compile states
+  const [isCompilingZip, setIsCompilingZip] = useState(false);
+  const [generatedZip, setGeneratedZip] = useState<string | null>(null);
+  const [zipSizeKB, setZipSizeKB] = useState<number | null>(null);
+
   // Aspect ratio lock and original frame size trackers
   const [aspectRatioLocked, setAspectRatioLocked] = useState(true);
   const [scalePreset, setScalePreset] = useState<string>("custom");
@@ -244,10 +250,15 @@ export default function GifPreviewer({
     }
   }, [activeFrames.length]);
 
-  // Reset generated GIF if key state parameters change
+  // Reset generated GIF and ZIP if key state parameters change
   useEffect(() => {
     setGeneratedGif(null);
     setGifSizeKB(null);
+    if (generatedZip) {
+      URL.revokeObjectURL(generatedZip);
+      setGeneratedZip(null);
+    }
+    setZipSizeKB(null);
   }, [
     activeFrames.map((f) => f.dataUrl).join(","),
     settings.fps,
@@ -255,6 +266,15 @@ export default function GifPreviewer({
     settings.gifWidth,
     settings.gifHeight,
     settings.playMode,
+    settings.captionText,
+    settings.captionColor,
+    settings.captionSize,
+    settings.captionXPercent,
+    settings.captionYPercent,
+    settings.captionEffect,
+    settings.captionFont,
+    settings.captionStroke,
+    settings.imageSmoothing,
   ]);
 
   // Determine current frame to display in the preview canvas
@@ -367,15 +387,45 @@ export default function GifPreviewer({
         sharpFrames.forEach((imageData, frameIndex) => {
           const data = imageData.data; // Uint8ClampedArray representing RGBA pixel data
           
+          // Check if this frame actually has transparent pixels
+          let hasTransparentPixels = false;
+          for (let i = 3; i < data.length; i += 4) {
+            if (data[i] <= 127) {
+              hasTransparentPixels = true;
+              break;
+            }
+          }
+
           // Quantize the colors to a reduced palette with alpha support (rgba4444)
           // and set oneBitAlpha to true so alpha values are either fully transparent or fully opaque
           const palette = quantize(data, 256, { format: 'rgba4444', oneBitAlpha: true });
           
+          // Detect the first index with fully transparent alpha in our quantized palette
+          let transparentIndex = palette.findIndex((c) => c[3] === 0);
+
+          if (hasTransparentPixels && transparentIndex === -1) {
+            // Force a transparent entry in the palette to guarantee 1-bit alpha support
+            if (palette.length < 256) {
+              palette.push([0, 0, 0, 0]);
+              transparentIndex = palette.length - 1;
+            } else {
+              palette[palette.length - 1] = [0, 0, 0, 0];
+              transparentIndex = palette.length - 1;
+            }
+          }
+
           // Obtain an indexed bitmap matching the quantized colors
           const indexBitmap = applyPalette(data, palette, 'rgba4444');
           
-          // Detect the first index with fully transparent alpha in our quantized palette
-          const transparentIndex = palette.findIndex((c) => c[3] === 0);
+          // Force map any pixel with alpha <= 127 to the transparentIndex in the indexed bitmap
+          // to completely bypass any color distance/matching issues where transparent pixels are mapped to solid colors.
+          if (transparentIndex !== -1) {
+            for (let i = 0; i < indexBitmap.length; i++) {
+              if (data[i * 4 + 3] <= 127) {
+                indexBitmap[i] = transparentIndex;
+              }
+            }
+          }
           
           const delayMs = Math.round(1000 / settings.fps);
           const frameOpts: any = {
@@ -424,6 +474,95 @@ export default function GifPreviewer({
     const link = document.createElement("a");
     link.href = generatedGif;
     link.download = `sprite-animation-${Date.now()}.gif`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Generate a ZIP containing all frames as individual transparent PNG files
+  const handleCompileZip = () => {
+    if (activeFrames.length === 0) return;
+
+    setIsCompilingZip(true);
+
+    // Collect frame URLs in the correct order based on playMode
+    let compileFrames: string[] = activeFrames.map((f) => f.dataUrl);
+
+    if (settings.playMode === "reverse") {
+      compileFrames = [...compileFrames].reverse();
+    } else if (settings.playMode === "pingpong" && compileFrames.length > 1) {
+      const reverseSequence = [...compileFrames].slice(1, -1).reverse();
+      compileFrames = [...compileFrames, ...reverseSequence];
+    }
+
+    setTimeout(async () => {
+      try {
+        const targetW = settings.gifWidth || 256;
+        const targetH = settings.gifHeight || 256;
+
+        // Process frames to scale them and overlay captions if necessary
+        const sharpFrames = await Promise.all(
+          compileFrames.map((url, index) => 
+            scaleImageWithSmoothing(
+              url, 
+              targetW, 
+              targetH, 
+              settings.imageSmoothing,
+              settings.captionText,
+              settings.captionColor,
+              settings.captionSize,
+              settings.captionYPercent,
+              settings.captionXPercent,
+              settings.captionEffect,
+              settings.captionStroke,
+              settings.captionFont,
+              index,
+              compileFrames.length
+            )
+          )
+        );
+
+        const zip = new JSZip();
+
+        // Convert each ImageData to a PNG Blob and add to ZIP
+        for (let i = 0; i < sharpFrames.length; i++) {
+          const imgData = sharpFrames[i];
+          const canvas = document.createElement("canvas");
+          canvas.width = imgData.width;
+          canvas.height = imgData.height;
+          const ctx = canvas.getContext("2d")!;
+          ctx.putImageData(imgData, 0, 0);
+
+          // Get PNG blob (retains exact transparent background and white character pixels)
+          const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+          if (blob) {
+            const frameNum = String(i + 1).padStart(3, "0");
+            zip.file(`frame_${frameNum}.png`, blob);
+          }
+        }
+
+        // Generate the zip file
+        const zipBlob = await zip.generateAsync({ type: "blob" });
+        const zipUrl = URL.createObjectURL(zipBlob);
+        
+        setGeneratedZip(zipUrl);
+        setZipSizeKB(Math.round(zipBlob.size / 1024));
+        setIsCompilingZip(false);
+      } catch (err: any) {
+        console.error("PNG ZIP compilation error:", err);
+        alert("PNG ZIP 파일 생성 중 오류가 발생했습니다: " + err.message);
+        setIsCompilingZip(false);
+      }
+    }, 300);
+  };
+
+  // ZIP File Download Handler
+  const handleDownloadZip = () => {
+    if (!generatedZip) return;
+
+    const link = document.createElement("a");
+    link.href = generatedZip;
+    link.download = `sprite-frames-${Date.now()}.zip`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1005,60 +1144,122 @@ export default function GifPreviewer({
 
         {/* Compile button */}
         {activeFrames.length > 0 && (
-          <div className="space-y-3">
-            {!generatedGif ? (
-              <button
-                type="button"
-                onClick={handleCompileGif}
-                disabled={isCompiling}
-                className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 disabled:opacity-50 text-white font-bold py-3 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 text-xs cursor-pointer select-none active:scale-[0.99]"
-              >
-                {isCompiling ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin text-white/80" />
-                    <span>{compileProgress}</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4" />
-                    <span>GIF 파일 생성하기 (Compile GIF)</span>
-                  </>
-                )}
-              </button>
-            ) : (
-              <div className="space-y-3 p-4 bg-emerald-500/5 rounded-xl border border-emerald-500/20 animate-fadeIn">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 bg-emerald-500/20 text-emerald-400 rounded-lg">
-                      <Check className="w-4 h-4 stroke-[3px]" />
+          <div className="space-y-4 pt-2 border-t border-white/5">
+            {/* GIF Export Section */}
+            <div className="space-y-2">
+              <span className="text-[10px] font-bold text-gray-400 block uppercase tracking-wider">GIF Format</span>
+              {!generatedGif ? (
+                <button
+                  type="button"
+                  onClick={handleCompileGif}
+                  disabled={isCompiling || isCompilingZip}
+                  className="w-full bg-indigo-600/80 hover:bg-indigo-600 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 text-xs cursor-pointer select-none active:scale-[0.99]"
+                >
+                  {isCompiling ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin text-white/80" />
+                      <span>{compileProgress}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      <span>GIF 파일 생성하기 (Compile GIF)</span>
+                    </>
+                  )}
+                </button>
+              ) : (
+                <div className="space-y-2 p-3 bg-emerald-500/5 rounded-xl border border-emerald-500/20 animate-fadeIn">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-emerald-500/20 text-emerald-400 rounded-lg">
+                        <Check className="w-3.5 h-3.5 stroke-[3px]" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-white block">GIF 생성 완료!</span>
+                        <span className="text-[10px] text-gray-400 font-mono">
+                          {gifDimensions.w}x{gifDimensions.h}px | {gifSizeKB} KB | {compileFramesCount()}프레임
+                        </span>
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-xs font-bold text-white block">GIF 생성 완료!</span>
-                      <span className="text-[10px] text-gray-400 font-mono">
-                        {gifDimensions.w}x{gifDimensions.h}px | {gifSizeKB} KB | {compileFramesCount()}프레임
-                      </span>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={handleCompileGif}
+                      className="text-[10px] text-indigo-400 hover:underline flex items-center gap-1"
+                    >
+                      <RefreshCw className="w-3 h-3" /> 다시 생성
+                    </button>
                   </div>
                   <button
                     type="button"
-                    onClick={handleCompileGif}
-                    className="text-[10px] text-indigo-400 hover:underline flex items-center gap-1"
+                    onClick={handleDownloadGif}
+                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 text-xs cursor-pointer select-none"
                   >
-                    <RefreshCw className="w-3 h-3" /> 다시 생성
+                    <Download className="w-3.5 h-3.5" />
+                    <span>GIF 애니메이션 다운로드</span>
                   </button>
                 </div>
+              )}
+            </div>
 
-                {/* Download Button */}
+            {/* PNG ZIP Export Section */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-sky-400 block uppercase tracking-wider flex items-center gap-1">
+                  PNG ZIP Format <span className="bg-sky-400/10 text-sky-400 text-[8px] px-1.5 py-0.5 rounded border border-sky-400/20">투명 배경 개별 프레임</span>
+                </span>
+              </div>
+              {!generatedZip ? (
                 <button
                   type="button"
-                  onClick={handleDownloadGif}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-lg shadow-md transition-all flex items-center justify-center gap-2 text-xs cursor-pointer select-none"
+                  onClick={handleCompileZip}
+                  disabled={isCompiling || isCompilingZip}
+                  className="w-full bg-sky-600/80 hover:bg-sky-600 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 text-xs cursor-pointer select-none active:scale-[0.99]"
                 >
-                  <Download className="w-4 h-4" />
-                  <span>GIF 애니메이션 다운로드</span>
+                  {isCompilingZip ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin text-white/80" />
+                      <span>PNG 압축 파일 패키징 중...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 text-sky-300" />
+                      <span>모든 프레임을 PNG ZIP으로 저장하기</span>
+                    </>
+                  )}
                 </button>
-              </div>
-            )}
+              ) : (
+                <div className="space-y-2 p-3 bg-emerald-500/5 rounded-xl border border-emerald-500/20 animate-fadeIn">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-emerald-500/20 text-emerald-400 rounded-lg">
+                        <Check className="w-3.5 h-3.5 stroke-[3px]" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-white block">ZIP 생성 완료!</span>
+                        <span className="text-[10px] text-gray-400 font-mono">
+                          {settings.gifWidth}x{settings.gifHeight}px | {zipSizeKB} KB | {compileFramesCount()}개 파일
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleCompileZip}
+                      className="text-[10px] text-sky-400 hover:underline flex items-center gap-1"
+                    >
+                      <RefreshCw className="w-3 h-3" /> 다시 생성
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDownloadZip}
+                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 text-xs cursor-pointer select-none"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>PNG ZIP 파일 다운로드</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

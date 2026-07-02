@@ -6,8 +6,9 @@ import { SpriteSheetSample, GifSettings } from "../types";
 interface SpriteSheetSelectorProps {
   settings: GifSettings;
   onSettingsChange: (settings: GifSettings) => void;
-  onImageLoaded: (dataUrl: string) => void;
+  onImageLoaded: (dataUrl: string, file?: File) => void;
   currentImage: string | null;
+  isAnimatedGifSource?: boolean;
 }
 
 export default function SpriteSheetSelector({
@@ -15,6 +16,7 @@ export default function SpriteSheetSelector({
   onSettingsChange,
   onImageLoaded,
   currentImage,
+  isAnimatedGifSource = false,
 }: SpriteSheetSelectorProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -48,7 +50,7 @@ export default function SpriteSheetSelector({
     const reader = new FileReader();
     reader.onload = (event) => {
       if (event.target?.result && typeof event.target.result === "string") {
-        onImageLoaded(event.target.result);
+        onImageLoaded(event.target.result, file);
       }
     };
     reader.readAsDataURL(file);
@@ -69,6 +71,69 @@ export default function SpriteSheetSelector({
       ...settings,
       [key]: value,
     });
+  };
+
+  const handleAutoDetectBackground = () => {
+    if (!currentImage) return;
+    
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0);
+      
+      // Sample the corners of the sheet to detect the background color
+      const points = [
+        [2, 2],
+        [img.naturalWidth - 3, 2],
+        [2, img.naturalHeight - 3],
+        [img.naturalWidth - 3, img.naturalHeight - 3]
+      ];
+      
+      const colors: { [key: string]: number } = {};
+      
+      points.forEach(([x, y]) => {
+        const pixel = ctx.getImageData(x, y, 1, 1).data;
+        const r = pixel[0];
+        const g = pixel[1];
+        const b = pixel[2];
+        const a = pixel[3];
+        
+        // Skip transparent points
+        if (a < 50) return;
+        
+        const toHex = (c: number) => {
+          const hex = c.toString(16);
+          return hex.length === 1 ? "0" + hex : hex;
+        };
+        const hex = "#" + toHex(r) + toHex(g) + toHex(b);
+        colors[hex] = (colors[hex] || 0) + 1;
+      });
+      
+      // Find the most frequent color, defaulting to white
+      let detectedColor = "#ffffff";
+      let maxCount = 0;
+      
+      Object.keys(colors).forEach((hex) => {
+        if (colors[hex] > maxCount) {
+          maxCount = colors[hex];
+          detectedColor = hex;
+        }
+      });
+      
+      onSettingsChange({
+        ...settings,
+        transparencyEnabled: true,
+        transparentColor: detectedColor,
+        transparencyTolerance: 15
+      });
+      
+      alert(`스프라이트 시트 배경색(${detectedColor})을 성공적으로 감지했습니다! 이제 배경이 깔끔하게 지워져 카톡의 흰둥이 토끼 이모티콘처럼 투명한 배경의 움짤로 다운로드할 수 있습니다.`);
+    };
+    img.src = currentImage;
   };
 
   return (
@@ -102,8 +167,8 @@ export default function SpriteSheetSelector({
           <div className="w-10 h-10 bg-indigo-500/10 text-indigo-400 rounded-full flex items-center justify-center mx-auto mb-3">
             <Upload className="w-5 h-5" />
           </div>
-          <p className="text-xs font-semibold text-white">클릭하거나 이미지 파일을 여기로 드래그하세요</p>
-          <p className="text-[10px] text-gray-500 mt-1">PNG, JPG, WEBP, GIF (정적 스프라이트 격자 이미지)</p>
+          <p className="text-xs font-semibold text-white">클릭하거나 이미지/GIF 파일을 여기로 드래그하세요</p>
+          <p className="text-[10px] text-gray-500 mt-1">PNG, JPG, WEBP, GIF (정적 시트 격자 및 움직이는 움짤 모두 지원)</p>
         </div>
 
         {/* Dynamic Samples selection */}
@@ -145,7 +210,16 @@ export default function SpriteSheetSelector({
       </div>
 
       {/* 2. Slicing Grid Configuration */}
-      <div className="bg-[#141414] rounded-2xl border border-white/5 p-5 space-y-4 shadow-xl">
+      <div className="bg-[#141414] rounded-2xl border border-white/5 p-5 space-y-4 shadow-xl relative overflow-hidden">
+        {isAnimatedGifSource && (
+          <div className="absolute inset-0 bg-[#0d0d0d]/90 backdrop-blur-md z-20 flex flex-col items-center justify-center p-4 text-center animate-fade-in">
+            <Sparkles className="w-5 h-5 text-indigo-400 animate-pulse mb-1.5" />
+            <p className="text-xs font-bold text-white">움짤 GIF 분석 활성화됨</p>
+            <p className="text-[9px] text-gray-400 mt-1 max-w-[220px] leading-relaxed">
+              업로드한 GIF에서 모든 프레임이 자동으로 추출되었습니다. 격자(Grid) 설정 없이 그대로 배경 제거 및 필터를 적용할 수 있습니다.
+            </p>
+          </div>
+        )}
         <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
           <Sliders className="w-4 h-4 text-indigo-400" />
           격자 및 슬라이싱 옵션
@@ -292,15 +366,27 @@ export default function SpriteSheetSelector({
             <Sparkles className="w-4 h-4 text-indigo-400" />
             배경 투명화 (크로마키)
           </h3>
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              checked={settings.transparencyEnabled}
-              onChange={(e) => updateSetting("transparencyEnabled", e.target.checked)}
-              className="sr-only peer"
-            />
-            <div className="w-9 h-5 bg-gray-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-gray-300 after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
-          </label>
+          <div className="flex items-center gap-2">
+            {currentImage && (
+              <button
+                type="button"
+                onClick={handleAutoDetectBackground}
+                className="text-[10px] bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-md transition-all active:scale-95 cursor-pointer flex items-center gap-1 font-bold"
+              >
+                <Sparkles className="w-3 h-3 text-indigo-400 animate-pulse" />
+                카톡 투명화 자동 설정
+              </button>
+            )}
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={settings.transparencyEnabled}
+                onChange={(e) => updateSetting("transparencyEnabled", e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-9 h-5 bg-gray-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-gray-300 after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+            </label>
+          </div>
         </div>
 
         {settings.transparencyEnabled && (

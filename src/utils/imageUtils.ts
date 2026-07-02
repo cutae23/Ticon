@@ -1,3 +1,5 @@
+import { parseGIF, decompressFrames } from "gifuct-js";
+
 /**
  * Draw an SVG string onto a canvas and return its base64 PNG data URL
  */
@@ -368,5 +370,65 @@ export function stabilizeFrameCenter(originalDataUrl: string): Promise<string> {
     img.src = originalDataUrl;
   });
 }
+
+/**
+ * Extract frames from an animated GIF ArrayBuffer and return data URLs with delays
+ */
+export function extractGifFrames(arrayBuffer: ArrayBuffer): Promise<{ dataUrl: string; delay: number }[]> {
+  return new Promise((resolve, reject) => {
+    try {
+      const gif = parseGIF(arrayBuffer);
+      const decompressedFrames = decompressFrames(gif, true);
+      
+      const width = gif.lsd.width;
+      const height = gif.lsd.height;
+      
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        throw new Error("Could not create 2D canvas context");
+      }
+      
+      const frames: { dataUrl: string; delay: number }[] = [];
+      
+      // Keep track of the canvas state for accumulation
+      // We will draw each frame's patch
+      decompressedFrames.forEach((frame: any) => {
+        const { dims, patch, delay, disposalType } = frame;
+        
+        // disposalType 2: restore to background color (clear current frame)
+        if (disposalType === 2) {
+          ctx.clearRect(0, 0, width, height);
+        }
+        
+        // Create patch image
+        const patchCanvas = document.createElement("canvas");
+        patchCanvas.width = dims.width;
+        patchCanvas.height = dims.height;
+        const patchCtx = patchCanvas.getContext("2d");
+        if (patchCtx) {
+          const patchData = patchCtx.createImageData(dims.width, dims.height);
+          patchData.data.set(patch);
+          patchCtx.putImageData(patchData, 0, 0);
+          
+          ctx.drawImage(patchCanvas, dims.left, dims.top);
+        }
+        
+        // Store frame as a PNG dataURL
+        frames.push({
+          dataUrl: canvas.toDataURL("image/png"),
+          delay: delay || 100,
+        });
+      });
+      
+      resolve(frames);
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
 
 

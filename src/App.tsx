@@ -4,7 +4,7 @@ import SpriteSheetSelector from "./components/SpriteSheetSelector";
 import SpriteSlicerGrid from "./components/SpriteSlicerGrid";
 import GifPreviewer from "./components/GifPreviewer";
 import { FrameInfo, GifSettings } from "./types";
-import { sliceSpriteSheet, applyTransparency, adjustLineBoldness, stabilizeFrameCenter } from "./utils/imageUtils";
+import { sliceSpriteSheet, applyTransparency, adjustLineBoldness, stabilizeFrameCenter, extractGifFrames } from "./utils/imageUtils";
 import { sampleCoin } from "./utils/samples";
 
 export default function App() {
@@ -41,12 +41,51 @@ export default function App() {
   // 2. Active Sprite Sheet Image (Default to rotating gold coin sample)
   const [currentSpriteSheet, setCurrentSpriteSheet] = useState<string | null>(sampleCoin);
 
-  // 3. Sliced Frames list
+  // 2.5. Animated GIF Source tracking
+  const [isAnimatedGifSource, setIsAnimatedGifSource] = useState(false);
+  const [extractedGifFrames, setExtractedGifFrames] = useState<{ dataUrl: string; delay: number }[]>([]);
+
+  // 3. Sliced/Decoded Frames list
   const [frames, setFrames] = useState<FrameInfo[]>([]);
   const [isSlicing, setIsSlicing] = useState(false);
   const [sliceError, setSliceError] = useState<string | null>(null);
 
-  // 4. Reactive Slicing Effect
+  // File loading handler supporting both static images and animated GIFs
+  const handleImageLoaded = async (dataUrl: string, file?: File) => {
+    if (file && (file.type === "image/gif" || file.name.toLowerCase().endsWith(".gif"))) {
+      try {
+        setIsSlicing(true);
+        setSliceError(null);
+        
+        const arrayBuffer = await file.arrayBuffer();
+        const decodedFrames = await extractGifFrames(arrayBuffer);
+        
+        if (decodedFrames.length > 1) {
+          setIsAnimatedGifSource(true);
+          setExtractedGifFrames(decodedFrames);
+          setCurrentSpriteSheet(dataUrl);
+          
+          // Match play delay of the GIF automatically
+          const firstDelay = decodedFrames[0].delay;
+          const calculatedFps = firstDelay > 0 ? Math.round(1000 / firstDelay) : 10;
+          setSettings((prev) => ({
+            ...prev,
+            fps: calculatedFps,
+          }));
+          return;
+        }
+      } catch (err: any) {
+        console.warn("Decoding as animated GIF failed, fallback to spritesheet mode:", err);
+      }
+    }
+    
+    // Normal non-animated image or fallback
+    setIsAnimatedGifSource(false);
+    setExtractedGifFrames([]);
+    setCurrentSpriteSheet(dataUrl);
+  };
+
+  // 4. Reactive Slicing / Frame Processing Effect
   useEffect(() => {
     if (!currentSpriteSheet) {
       setFrames([]);
@@ -57,80 +96,93 @@ export default function App() {
     setIsSlicing(true);
     setSliceError(null);
 
-    // High performance slicing
-    sliceSpriteSheet(
-      currentSpriteSheet,
-      settings.cols,
-      settings.rows,
-      settings.cropLeft,
-      settings.cropRight,
-      settings.cropTop,
-      settings.cropBottom,
-      settings.frameShave
-    )
-      .then(async (slicedUrls) => {
-        if (isCancelled) return;
+    const runPipeline = async (baseFrames: FrameInfo[]) => {
+      // Apply processing pipeline (Chroma-key transparency + Centering stabilization + Line Boldness adjustment)
+      const processedFrames = await Promise.all(
+        baseFrames.map(async (f) => {
+          let activeUrl = f.originalDataUrl;
 
-        const baseFrames: FrameInfo[] = slicedUrls.map((url, index) => ({
-          id: index,
-          dataUrl: url,
-          originalDataUrl: url,
-          selected: true,
-        }));
+          // 1. Transparency keying
+          if (settings.transparencyEnabled) {
+            activeUrl = await applyTransparency(
+              activeUrl,
+              settings.transparentColor,
+              settings.transparencyTolerance
+            );
+          }
 
-        // Apply processing pipeline (Chroma-key transparency + Centering stabilization + Line Boldness adjustment)
-        const processedFrames = await Promise.all(
-          baseFrames.map(async (f) => {
-            let activeUrl = f.originalDataUrl;
+          // 2. Character Center/Shaking Stabilization
+          if (settings.stabilizeFrames) {
+            activeUrl = await stabilizeFrameCenter(activeUrl);
+          }
 
-            // 1. Transparency keying
-            if (settings.transparencyEnabled) {
-              activeUrl = await applyTransparency(
-                activeUrl,
-                settings.transparentColor,
-                settings.transparencyTolerance
-              );
-            }
+          // 3. Line Boldness / Thickening adjustment
+          if (settings.lineBoldness > 0) {
+            activeUrl = await adjustLineBoldness(
+              activeUrl,
+              settings.lineBoldness
+            );
+          }
 
-            // 2. Character Center/Shaking Stabilization
-            if (settings.stabilizeFrames) {
-              activeUrl = await stabilizeFrameCenter(activeUrl);
-            }
+          return { ...f, dataUrl: activeUrl };
+        })
+      );
 
-            // 3. Line Boldness / Thickening adjustment
-            if (settings.lineBoldness > 0) {
-              activeUrl = await adjustLineBoldness(
-                activeUrl,
-                settings.lineBoldness
-              );
-            }
+      if (!isCancelled) {
+        setFrames(processedFrames);
+        setIsSlicing(false);
+      }
+    };
 
-            return { ...f, dataUrl: activeUrl };
-          })
-        );
+    if (isAnimatedGifSource && extractedGifFrames.length > 0) {
+      const baseFrames: FrameInfo[] = extractedGifFrames.map((f, index) => ({
+        id: index,
+        dataUrl: f.dataUrl,
+        originalDataUrl: f.dataUrl,
+        selected: true,
+      }));
+      runPipeline(baseFrames);
+    } else {
+      // High performance slicing
+      sliceSpriteSheet(
+        currentSpriteSheet,
+        settings.cols,
+        settings.rows,
+        settings.cropLeft,
+        settings.cropRight,
+        settings.cropTop,
+        settings.cropBottom,
+        settings.frameShave
+      )
+        .then(async (slicedUrls) => {
+          if (isCancelled) return;
 
-        if (!isCancelled) {
-          setFrames(processedFrames);
-        }
-      })
-      .catch((err) => {
-        if (!isCancelled) {
-          console.error("Spritesheet processing error:", err);
-          setSliceError(err.message || "스프라이트 시트 분석 도중 오류가 발생했습니다. 격자 수를 변경해 보거나 올바른 이미지 파일인지 확인하세요.");
-          setFrames([]);
-        }
-      })
-      .finally(() => {
-        if (!isCancelled) {
-          setIsSlicing(false);
-        }
-      });
+          const baseFrames: FrameInfo[] = slicedUrls.map((url, index) => ({
+            id: index,
+            dataUrl: url,
+            originalDataUrl: url,
+            selected: true,
+          }));
+
+          await runPipeline(baseFrames);
+        })
+        .catch((err) => {
+          if (!isCancelled) {
+            console.error("Spritesheet processing error:", err);
+            setSliceError(err.message || "스프라이트 시트 분석 도중 오류가 발생했습니다. 격자 수를 변경해 보거나 올바른 이미지 파일인지 확인하세요.");
+            setFrames([]);
+            setIsSlicing(false);
+          }
+        });
+    }
 
     return () => {
       isCancelled = true;
     };
   }, [
     currentSpriteSheet,
+    isAnimatedGifSource,
+    extractedGifFrames,
     settings.cols,
     settings.rows,
     settings.transparencyEnabled,
@@ -162,6 +214,8 @@ export default function App() {
   };
 
   const handleResetProject = () => {
+    setIsAnimatedGifSource(false);
+    setExtractedGifFrames([]);
     setCurrentSpriteSheet(sampleCoin);
     setSettings({
       cols: 6,
@@ -240,8 +294,9 @@ export default function App() {
             <SpriteSheetSelector
               settings={settings}
               onSettingsChange={setSettings}
-              onImageLoaded={setCurrentSpriteSheet}
+              onImageLoaded={handleImageLoaded}
               currentImage={currentSpriteSheet}
+              isAnimatedGifSource={isAnimatedGifSource}
             />
           </div>
 
@@ -251,8 +306,14 @@ export default function App() {
               <div className="bg-[#141414] rounded-2xl border border-white/5 p-12 text-center flex flex-col items-center justify-center space-y-4 shadow-xl">
                 <RefreshCw className="w-8 h-8 text-indigo-500 animate-spin" />
                 <div>
-                  <p className="text-sm font-semibold text-white">스프라이트 시트 슬라이싱 중...</p>
-                  <p className="text-xs text-gray-500 mt-1">이미지를 {settings.cols} × {settings.rows} 격자로 고속 분할하고 있습니다.</p>
+                  <p className="text-sm font-semibold text-white">
+                    {isAnimatedGifSource ? "움짤 GIF 프레임 가공 중..." : "스프라이트 시트 슬라이싱 중..."}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {isAnimatedGifSource 
+                      ? "움짤의 각 프레임에서 배경색 제거 및 보정 처리를 적용하고 있습니다." 
+                      : `이미지를 ${settings.cols} × ${settings.rows} 격자로 고속 분할하고 있습니다.`}
+                  </p>
                 </div>
               </div>
             ) : (
