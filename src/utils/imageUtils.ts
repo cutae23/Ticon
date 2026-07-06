@@ -66,16 +66,19 @@ export function sliceSpriteSheet(
           return;
         }
 
-        const frameWidth = Math.floor(croppedWidth / cols);
-        const frameHeight = Math.floor(croppedHeight / rows);
+        const safeCols = Math.max(1, isNaN(cols) ? 1 : cols);
+        const safeRows = Math.max(1, isNaN(rows) ? 1 : rows);
+
+        const frameWidth = Math.floor(croppedWidth / safeCols);
+        const frameHeight = Math.floor(croppedHeight / safeRows);
 
         if (frameWidth <= 0 || frameHeight <= 0) {
           reject(new Error("유효하지 않은 그리드 차원입니다. 행/열 설정을 확인해 주세요."));
           return;
         }
 
-        for (let r = 0; r < rows; r++) {
-          for (let c = 0; c < cols; c++) {
+        for (let r = 0; r < safeRows; r++) {
+          for (let c = 0; c < safeCols; c++) {
             // Compute source coordinates on the sheet (taking cropLeft/cropTop into account)
             const srcX = cropLeft + c * frameWidth;
             const srcY = cropTop + r * frameHeight;
@@ -237,7 +240,7 @@ export function applyTransparency(
             }
           }
 
-          // BFS traversal
+          // BFS traversal for the main background
           while (head < tail) {
             const currIdx = queue[head++];
             const cx = currIdx % w;
@@ -247,7 +250,6 @@ export function applyTransparency(
             data[currIdx * 4 + 3] = 0;
 
             // Check 4-way neighbors
-            // 1. Up
             if (cy > 0) {
               const nidx = currIdx - w;
               if (!visited[nidx] && matchesTarget(nidx * 4)) {
@@ -255,7 +257,6 @@ export function applyTransparency(
                 queue[tail++] = nidx;
               }
             }
-            // 2. Down
             if (cy < h - 1) {
               const nidx = currIdx + w;
               if (!visited[nidx] && matchesTarget(nidx * 4)) {
@@ -263,7 +264,6 @@ export function applyTransparency(
                 queue[tail++] = nidx;
               }
             }
-            // 3. Left
             if (cx > 0) {
               const nidx = currIdx - 1;
               if (!visited[nidx] && matchesTarget(nidx * 4)) {
@@ -271,12 +271,76 @@ export function applyTransparency(
                 queue[tail++] = nidx;
               }
             }
-            // 4. Right
             if (cx < w - 1) {
               const nidx = currIdx + 1;
               if (!visited[nidx] && matchesTarget(nidx * 4)) {
                 visited[nidx] = 1;
                 queue[tail++] = nidx;
+              }
+            }
+          }
+
+          // --- [지능형 추가 작업: 글자 내부 구멍 같은 고립된 미세 배경 제거] ---
+          // 외곽과 단절된 고립된 영역들을 찾습니다.
+          // 전체 픽셀 수 중 일정 영역 크기(예: 3000픽셀 미만, 즉 가로세로 약 55px 박스 수준) 이하인 고립 영역은
+          // 글씨 내부 구멍(ㅇ, ㅂ, ㅁ 등)이나 디테일한 미세 틈새로 판단하여 투명화합니다.
+          // 반면 캐릭터 몸체나 얼굴처럼 큰 영역은 보존합니다.
+          const maxIsolatedArea = Math.min(3000, Math.floor(w * h * 0.035));
+
+          for (let idx = 0; idx < w * h; idx++) {
+            if (visited[idx] === 0 && matchesTarget(idx * 4)) {
+              // 방문하지 않은 새로운 고립된 배경색 영역을 발견했습니다!
+              // 이 영역의 픽셀들을 모으기 위해 서브 BFS를 수행합니다.
+              const subQueue = new Int32Array(w * h);
+              let subHead = 0;
+              let subTail = 0;
+
+              visited[idx] = 2; // 서브 그룹 방문 표시
+              subQueue[subTail++] = idx;
+
+              while (subHead < subTail) {
+                const curr = subQueue[subHead++];
+                const cx = curr % w;
+                const cy = Math.floor(curr / w);
+
+                // Check 4-way neighbors
+                if (cy > 0) {
+                  const nidx = curr - w;
+                  if (visited[nidx] === 0 && matchesTarget(nidx * 4)) {
+                    visited[nidx] = 2;
+                    subQueue[subTail++] = nidx;
+                  }
+                }
+                if (cy < h - 1) {
+                  const nidx = curr + w;
+                  if (visited[nidx] === 0 && matchesTarget(nidx * 4)) {
+                    visited[nidx] = 2;
+                    subQueue[subTail++] = nidx;
+                  }
+                }
+                if (cx > 0) {
+                  const nidx = curr - 1;
+                  if (visited[nidx] === 0 && matchesTarget(nidx * 4)) {
+                    visited[nidx] = 2;
+                    subQueue[subTail++] = nidx;
+                  }
+                }
+                if (cx < w - 1) {
+                  const nidx = curr + 1;
+                  if (visited[nidx] === 0 && matchesTarget(nidx * 4)) {
+                    visited[nidx] = 2;
+                    subQueue[subTail++] = nidx;
+                  }
+                }
+              }
+
+              // 서브 BFS 탐색 완료. 이 영역의 크기는 subTail개입니다.
+              if (subTail <= maxIsolatedArea) {
+                // 임계값보다 작은 구멍(예: 글씨 구멍)이므로 전부 투명하게 지웁니다!
+                for (let k = 0; k < subTail; k++) {
+                  const pIdx = subQueue[k];
+                  data[pIdx * 4 + 3] = 0; // 투명화
+                }
               }
             }
           }

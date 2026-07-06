@@ -29,19 +29,22 @@ function scaleImageWithSmoothing(
   frameIndex: number,
   totalFrames: number
 ): Promise<ImageData> {
+  const safeW = Math.max(8, isNaN(targetWidth) || !targetWidth ? 360 : targetWidth);
+  const safeH = Math.max(8, isNaN(targetHeight) || !targetHeight ? 360 : targetHeight);
+
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement("canvas");
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
+      canvas.width = safeW;
+      canvas.height = safeH;
       const ctx = canvas.getContext("2d");
       if (!ctx) {
         const dummyCanvas = document.createElement("canvas");
-        dummyCanvas.width = targetWidth;
-        dummyCanvas.height = targetHeight;
+        dummyCanvas.width = safeW;
+        dummyCanvas.height = safeH;
         const dummyCtx = dummyCanvas.getContext("2d")!;
-        resolve(dummyCtx.getImageData(0, 0, targetWidth, targetHeight));
+        resolve(dummyCtx.getImageData(0, 0, safeW, safeH));
         return;
       }
 
@@ -57,7 +60,7 @@ function scaleImageWithSmoothing(
 
       // Do NOT fill background color to preserve transparency of character sprite
 
-      ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+      ctx.drawImage(img, 0, 0, safeW, safeH);
 
       // Draw caption text overlay if present
       if (captionText && captionText.trim() !== "") {
@@ -71,7 +74,7 @@ function scaleImageWithSmoothing(
           const ratio = frameIndex / totalFrames;
           if (captionEffect === "bounce") {
             // Animating offset up/down
-            offsetY = Math.sin(ratio * Math.PI * 2) * (targetHeight * 0.04);
+            offsetY = Math.sin(ratio * Math.PI * 2) * (safeH * 0.04);
           } else if (captionEffect === "fade") {
             // Dynamic transparency
             alpha = 0.4 + 0.6 * Math.sin(ratio * Math.PI);
@@ -84,15 +87,15 @@ function scaleImageWithSmoothing(
         ctx.globalAlpha = alpha;
 
         // Make caption size scale relative to compiled canvas height (normalized to base 256px)
-        const computedFontSize = Math.max(8, Math.round(captionSize * (targetHeight / 256)));
+        const computedFontSize = Math.max(8, Math.round(captionSize * (safeH / 256)));
 
         // Setup text styling
         ctx.font = `bold ${computedFontSize}px "${captionFont}", "Noto Sans KR", "Nanum Gothic", "Inter", sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
 
-        const x = targetWidth * (captionXPercent / 100);
-        const y = (targetHeight * (captionYPercent / 100)) + offsetY;
+        const x = safeW * (captionXPercent / 100);
+        const y = (safeH * (captionYPercent / 100)) + offsetY;
 
         ctx.fillStyle = captionColor;
         ctx.strokeStyle = "#000000";
@@ -113,14 +116,14 @@ function scaleImageWithSmoothing(
         ctx.restore();
       }
 
-      resolve(ctx.getImageData(0, 0, targetWidth, targetHeight));
+      resolve(ctx.getImageData(0, 0, safeW, safeH));
     };
     img.onerror = () => {
       const canvas = document.createElement("canvas");
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
+      canvas.width = safeW;
+      canvas.height = safeH;
       const ctx = canvas.getContext("2d")!;
-      resolve(ctx.getImageData(0, 0, targetWidth, targetHeight));
+      resolve(ctx.getImageData(0, 0, safeW, safeH));
     };
     img.src = dataUrl;
   });
@@ -300,20 +303,22 @@ export default function GifPreviewer({
   // Up/Down scaling size modifiers
   const handleWidthChange = (width: number) => {
     setScalePreset("custom");
-    const updatedSettings = { ...settings, gifWidth: width };
-    if (aspectRatioLocked && originalFrameSize.w > 0) {
+    const safeWidth = isNaN(width) ? 0 : width;
+    const updatedSettings = { ...settings, gifWidth: safeWidth };
+    if (aspectRatioLocked && originalFrameSize.w > 0 && safeWidth > 0) {
       const ratio = originalFrameSize.h / originalFrameSize.w;
-      updatedSettings.gifHeight = Math.max(1, Math.round(width * ratio));
+      updatedSettings.gifHeight = Math.max(1, Math.round(safeWidth * ratio));
     }
     onSettingsChange(updatedSettings);
   };
 
   const handleHeightChange = (height: number) => {
     setScalePreset("custom");
-    const updatedSettings = { ...settings, gifHeight: height };
-    if (aspectRatioLocked && originalFrameSize.h > 0) {
+    const safeHeight = isNaN(height) ? 0 : height;
+    const updatedSettings = { ...settings, gifHeight: safeHeight };
+    if (aspectRatioLocked && originalFrameSize.h > 0 && safeHeight > 0) {
       const ratio = originalFrameSize.w / originalFrameSize.h;
-      updatedSettings.gifWidth = Math.max(1, Math.round(height * ratio));
+      updatedSettings.gifWidth = Math.max(1, Math.round(safeHeight * ratio));
     }
     onSettingsChange(updatedSettings);
   };
@@ -552,6 +557,38 @@ export default function GifPreviewer({
           }
         }
 
+        // --- 카카오톡 이모티콘 78x78px 탭 아이콘 (글자 제외) 추가 ---
+        // 첫 번째 프레임(또는 현재 재생 프레임)을 78x78 px로 줄이고 글자를 뺀 채로 렌더링
+        try {
+          const tabIconImgData = await scaleImageWithSmoothing(
+            compileFrames[0],
+            78,
+            78,
+            settings.imageSmoothing,
+            "", // captionText empty (글짜빼줘)
+            settings.captionColor,
+            settings.captionSize,
+            settings.captionYPercent,
+            settings.captionXPercent,
+            settings.captionEffect,
+            settings.captionStroke,
+            settings.captionFont,
+            0,
+            1
+          );
+          const tabCanvas = document.createElement("canvas");
+          tabCanvas.width = 78;
+          tabCanvas.height = 78;
+          const tabCtx = tabCanvas.getContext("2d")!;
+          tabCtx.putImageData(tabIconImgData, 0, 0);
+          const tabBlob = await new Promise<Blob | null>((resolve) => tabCanvas.toBlob(resolve, "image/png"));
+          if (tabBlob) {
+            zip.file("tab_icon_78.png", tabBlob);
+          }
+        } catch (tabErr) {
+          console.error("Failed to inject tab icon in ZIP:", tabErr);
+        }
+
         // Generate the zip file
         const zipBlob = await zip.generateAsync({ type: "blob" });
         const zipUrl = URL.createObjectURL(zipBlob);
@@ -577,6 +614,50 @@ export default function GifPreviewer({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // Generate and download a single KakaoTalk Tab Icon (78x78, text/caption removed)
+  const handleDownloadTabIcon = async () => {
+    if (activeFrames.length === 0) return;
+    try {
+      // Use the first active frame as the base of the tab icon
+      const firstFrameUrl = activeFrames[0].dataUrl;
+      const tabIconImgData = await scaleImageWithSmoothing(
+        firstFrameUrl,
+        78,
+        78,
+        settings.imageSmoothing,
+        "", // Clear text for tab icon (글짜빼줘)
+        settings.captionColor,
+        settings.captionSize,
+        settings.captionYPercent,
+        settings.captionXPercent,
+        settings.captionEffect,
+        settings.captionStroke,
+        settings.captionFont,
+        0,
+        1
+      );
+      const tabCanvas = document.createElement("canvas");
+      tabCanvas.width = 78;
+      tabCanvas.height = 78;
+      const tabCtx = tabCanvas.getContext("2d")!;
+      tabCtx.putImageData(tabIconImgData, 0, 0);
+      
+      const blob = await new Promise<Blob | null>((resolve) => tabCanvas.toBlob(resolve, "image/png"));
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `tab_icon_78.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+    } catch (err: any) {
+      alert("탭 아이콘 생성 중 오류가 발생했습니다: " + err.message);
+    }
   };
 
   const updateSetting = <K extends keyof GifSettings>(key: K, value: GifSettings[K]) => {
@@ -1058,8 +1139,11 @@ export default function GifPreviewer({
                   type="number"
                   min="8"
                   max="2048"
-                  value={settings.gifWidth}
-                  onChange={(e) => handleWidthChange(Math.max(8, parseInt(e.target.value) || 8))}
+                  value={settings.gifWidth || ""}
+                  onChange={(e) => {
+                    const val = e.target.value === "" ? 0 : parseInt(e.target.value);
+                    handleWidthChange(isNaN(val) ? 0 : val);
+                  }}
                   className="w-full bg-[#1e1e1e] border border-white/10 rounded-lg py-1.5 px-3 text-xs text-white text-center font-bold focus:outline-none focus:border-indigo-500"
                 />
                 <span className="absolute right-2.5 top-2 text-[8px] font-bold text-gray-500 font-mono">PX</span>
@@ -1074,9 +1158,12 @@ export default function GifPreviewer({
                   type="number"
                   min="8"
                   max="2048"
-                  value={settings.gifHeight}
+                  value={settings.gifHeight || ""}
                   disabled={aspectRatioLocked}
-                  onChange={(e) => handleHeightChange(Math.max(8, parseInt(e.target.value) || 8))}
+                  onChange={(e) => {
+                    const val = e.target.value === "" ? 0 : parseInt(e.target.value);
+                    handleHeightChange(isNaN(val) ? 0 : val);
+                  }}
                   className={`w-full border rounded-lg py-1.5 px-3 text-xs text-center font-bold focus:outline-none ${
                     aspectRatioLocked
                       ? "bg-[#141414] border-white/5 text-indigo-400 cursor-not-allowed"
@@ -1290,6 +1377,24 @@ export default function GifPreviewer({
                   </button>
                 </div>
               )}
+            </div>
+
+            {/* KakaoTalk Tab Icon Section */}
+            <div className="space-y-2 pt-2 border-t border-white/5">
+              <span className="text-[10px] font-bold text-pink-400 block uppercase tracking-wider flex items-center gap-1">
+                카카오톡 탭 아이콘 <span className="bg-pink-400/10 text-pink-400 text-[8px] px-1.5 py-0.5 rounded border border-pink-400/20">78×78 px | 글자 제외</span>
+              </span>
+              <button
+                type="button"
+                onClick={handleDownloadTabIcon}
+                className="w-full bg-pink-600/80 hover:bg-pink-600 text-white font-bold py-2.5 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 text-xs cursor-pointer select-none active:scale-[0.99]"
+              >
+                <Download className="w-4 h-4 text-white" />
+                <span>78×78 px 탭 아이콘 다운로드 (글자 제외)</span>
+              </button>
+              <p className="text-[9px] text-gray-500 leading-snug">
+                💡 카톡 이모티콘 탭 아이콘 규격(78×78 px)으로, 자막 글자가 제외된 1번째 프레임 PNG 파일입니다. (PNG ZIP 패키지 다운로드 시에도 내부에 동봉됩니다.)
+              </p>
             </div>
           </div>
         )}

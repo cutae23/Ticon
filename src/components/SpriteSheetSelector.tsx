@@ -234,8 +234,11 @@ export default function SpriteSheetSelector({
                 type="number"
                 min="1"
                 max="30"
-                value={settings.cols}
-                onChange={(e) => updateSetting("cols", Math.max(1, parseInt(e.target.value) || 1))}
+                value={settings.cols || ""}
+                onChange={(e) => {
+                  const val = e.target.value === "" ? 0 : parseInt(e.target.value);
+                  updateSetting("cols", isNaN(val) ? 0 : val);
+                }}
                 className="w-full bg-[#1e1e1e] border border-white/10 rounded-lg px-3 py-2 text-xs text-white text-center focus:outline-none focus:border-indigo-500 font-bold"
               />
             </div>
@@ -248,8 +251,11 @@ export default function SpriteSheetSelector({
                 type="number"
                 min="1"
                 max="30"
-                value={settings.rows}
-                onChange={(e) => updateSetting("rows", Math.max(1, parseInt(e.target.value) || 1))}
+                value={settings.rows || ""}
+                onChange={(e) => {
+                  const val = e.target.value === "" ? 0 : parseInt(e.target.value);
+                  updateSetting("rows", isNaN(val) ? 0 : val);
+                }}
                 className="w-full bg-[#1e1e1e] border border-white/10 rounded-lg px-3 py-2 text-xs text-white text-center focus:outline-none focus:border-indigo-500 font-bold"
               />
             </div>
@@ -299,8 +305,11 @@ export default function SpriteSheetSelector({
                 type="number"
                 min="0"
                 max="500"
-                value={settings.cropTop}
-                onChange={(e) => updateSetting("cropTop", Math.max(0, parseInt(e.target.value) || 0))}
+                value={settings.cropTop || ""}
+                onChange={(e) => {
+                  const val = e.target.value === "" ? 0 : parseInt(e.target.value);
+                  updateSetting("cropTop", isNaN(val) ? 0 : val);
+                }}
                 className="w-full bg-[#1e1e1e] border border-white/10 rounded-lg py-1.5 px-2 text-xs text-white text-center focus:outline-none focus:border-indigo-500 font-bold"
               />
             </div>
@@ -310,8 +319,11 @@ export default function SpriteSheetSelector({
                 type="number"
                 min="0"
                 max="500"
-                value={settings.cropBottom}
-                onChange={(e) => updateSetting("cropBottom", Math.max(0, parseInt(e.target.value) || 0))}
+                value={settings.cropBottom || ""}
+                onChange={(e) => {
+                  const val = e.target.value === "" ? 0 : parseInt(e.target.value);
+                  updateSetting("cropBottom", isNaN(val) ? 0 : val);
+                }}
                 className="w-full bg-[#1e1e1e] border border-white/10 rounded-lg py-1.5 px-2 text-xs text-white text-center focus:outline-none focus:border-indigo-500 font-bold"
               />
             </div>
@@ -321,8 +333,11 @@ export default function SpriteSheetSelector({
                 type="number"
                 min="0"
                 max="500"
-                value={settings.cropLeft}
-                onChange={(e) => updateSetting("cropLeft", Math.max(0, parseInt(e.target.value) || 0))}
+                value={settings.cropLeft || ""}
+                onChange={(e) => {
+                  const val = e.target.value === "" ? 0 : parseInt(e.target.value);
+                  updateSetting("cropLeft", isNaN(val) ? 0 : val);
+                }}
                 className="w-full bg-[#1e1e1e] border border-white/10 rounded-lg py-1.5 px-2 text-xs text-white text-center focus:outline-none focus:border-indigo-500 font-bold"
               />
             </div>
@@ -332,8 +347,11 @@ export default function SpriteSheetSelector({
                 type="number"
                 min="0"
                 max="500"
-                value={settings.cropRight}
-                onChange={(e) => updateSetting("cropRight", Math.max(0, parseInt(e.target.value) || 0))}
+                value={settings.cropRight || ""}
+                onChange={(e) => {
+                  const val = e.target.value === "" ? 0 : parseInt(e.target.value);
+                  updateSetting("cropRight", isNaN(val) ? 0 : val);
+                }}
                 className="w-full bg-[#1e1e1e] border border-white/10 rounded-lg py-1.5 px-2 text-xs text-white text-center focus:outline-none focus:border-indigo-500 font-bold"
               />
             </div>
