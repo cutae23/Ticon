@@ -127,6 +127,7 @@ export default function SpriteSheetSelector({
       onSettingsChange({
         ...settings,
         transparencyEnabled: true,
+        transparencyFloodFill: false,
         transparentColor: detectedColor,
         transparencyTolerance: 15
       });

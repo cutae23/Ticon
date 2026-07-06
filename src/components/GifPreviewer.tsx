@@ -135,7 +135,7 @@ export default function GifPreviewer({
   // Live player states
   const [isPlaying, setIsPlaying] = useState(true);
   const [playerIndex, setPlayerIndex] = useState(0);
-  const [previewBg, setPreviewBg] = useState<"light" | "white" | "dark">("white");
+  const [previewBg, setPreviewBg] = useState<"light" | "white" | "dark">("dark");
 
   // GIF compile states
   const [isCompiling, setIsCompiling] = useState(false);
@@ -320,7 +320,18 @@ export default function GifPreviewer({
 
   const handlePresetChange = (preset: string) => {
     setScalePreset(preset);
-    if (preset === "custom" || originalFrameSize.w === 0 || originalFrameSize.h === 0) return;
+    if (preset === "custom") return;
+
+    if (preset === "360") {
+      onSettingsChange({
+        ...settings,
+        gifWidth: 360,
+        gifHeight: 360,
+      });
+      return;
+    }
+
+    if (originalFrameSize.w === 0 || originalFrameSize.h === 0) return;
 
     const scale = parseFloat(preset);
     if (isNaN(scale)) return;
@@ -1026,6 +1037,7 @@ export default function GifPreviewer({
             onChange={(e) => handlePresetChange(e.target.value)}
             className="w-full bg-[#1e1e1e] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-semibold"
           >
+            <option value="360">360 × 360 px (카카오톡 이모티콘 최적화 규격)</option>
             <option value="1">100% (원본 1x 배율 - {originalFrameSize.w} × {originalFrameSize.h})</option>
             <option value="2">200% (고화질 2x 배율 - {originalFrameSize.w * 2} × {originalFrameSize.h * 2})</option>
             <option value="4">400% (벡터형 4x 배율 - {originalFrameSize.w * 4} × {originalFrameSize.h * 4})</option>
@@ -1207,6 +1219,25 @@ export default function GifPreviewer({
                 <span className="text-[10px] font-bold text-sky-400 block uppercase tracking-wider flex items-center gap-1">
                   PNG ZIP Format <span className="bg-sky-400/10 text-sky-400 text-[8px] px-1.5 py-0.5 rounded border border-sky-400/20">투명 배경 개별 프레임</span>
                 </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScalePreset("360");
+                    onSettingsChange({
+                      ...settings,
+                      gifWidth: 360,
+                      gifHeight: 360,
+                    });
+                  }}
+                  className={`px-2 py-1 rounded border text-[9px] font-bold transition-all cursor-pointer ${
+                    settings.gifWidth === 360 && settings.gifHeight === 360
+                      ? "bg-sky-500/20 border-sky-500/30 text-sky-300"
+                      : "bg-white/5 border-white/5 text-gray-400 hover:bg-white/10 hover:text-white"
+                  }`}
+                  title="해상도를 360x360 규격으로 즉시 설정합니다"
+                >
+                  🎯 360×360 px 원클릭 적용
+                </button>
               </div>
               {!generatedZip ? (
                 <button
