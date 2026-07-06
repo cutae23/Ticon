@@ -335,8 +335,20 @@ export function applyTransparency(
               }
 
               // 서브 BFS 탐색 완료. 이 영역의 크기는 subTail개입니다.
-              if (subTail <= maxIsolatedArea) {
-                // 임계값보다 작은 구멍(예: 글씨 구멍)이므로 전부 투명하게 지웁니다!
+              // 영역 내 픽셀들의 평균 Y 좌표를 구하여 이미지의 상단 영역(글자 영역)인지 판별합니다.
+              let sumY = 0;
+              for (let k = 0; k < subTail; k++) {
+                sumY += Math.floor(subQueue[k] / w);
+              }
+              const avgY = sumY / subTail;
+
+              // 글자 영역(상단 42% 미만)에 위치한 소규모 영역(예: 800px 이하)만 글씨 구멍으로 판단하여 지웁니다.
+              // 캐릭터가 주로 위치한 아래 영역(y >= 42%)은 흰색을 원본 그대로 유지하기 위해 아주 작은 점(15px 이하)을 제외하고는 보존합니다.
+              const isUpperArea = avgY < h * 0.42;
+              const maxAllowedSize = isUpperArea ? 800 : 15;
+
+              if (subTail <= maxAllowedSize) {
+                // 지우기 대상 구멍이므로 전부 투명하게 지웁니다.
                 for (let k = 0; k < subTail; k++) {
                   const pIdx = subQueue[k];
                   data[pIdx * 4 + 3] = 0; // 투명화
